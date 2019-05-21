@@ -365,7 +365,7 @@ loadvid(PyObject *UNUSED(dummy), PyObject *args, PyObject *kw)
         bool should_random_seek = true;
         uint32_t width = 0;
         uint32_t height = 0;
-        uint32_t num_frames = 32;
+        uint32_t num_frames = 0;
         float seek_distance = 0.0f;
         static char *kwlist[] = {"encoded_video",
                                  "should_random_seek",
@@ -395,6 +395,11 @@ loadvid(PyObject *UNUSED(dummy), PyObject *args, PyObject *kw)
         bool is_size_dynamic = get_vid_width_height(&width,
                                                     &height,
                                                     vid_ctx.codec_context);
+
+        if (num_frames == 0) {
+            num_frames = vid_ctx.nb_frames;
+            should_random_seek = false;
+        }
 
         PyByteArrayObject *frames = alloc_pyarray(num_frames*width*height*3);
         if (PyErr_Occurred() || (frames == NULL))
@@ -458,6 +463,44 @@ return_frames:
         return result;
 }
 
+static PyObject *
+get_video_shape(PyObject *UNUSED(dummy), PyObject *args, PyObject *kw) {
+        const char *video_bytes = NULL;
+        uint32_t width = 0;
+        uint32_t height = 0;
+        uint32_t num_frames = 0;
+        Py_ssize_t in_size_bytes = 0;
+        static char *kwlist[] = {"encoded_video",
+                                 0};
+        if (!PyArg_ParseTupleAndKeywords(args,
+                                         kw,
+                                         "y#:get_video_shape",
+
+                                         kwlist,
+                                         &video_bytes,
+                                         &in_size_bytes))
+          return NULL;
+        struct video_stream_context vid_ctx;
+        struct buffer_data input_buf = {.ptr = video_bytes,
+                                        .offset_bytes = 0,
+                                        .total_size_bytes = in_size_bytes};
+        int32_t status = setup_vid_stream_context(&vid_ctx, &input_buf);
+
+        if (status != LOADVID_SUCCESS) {
+          return NULL;
+        }
+
+        get_vid_width_height(&width,
+            &height,
+            vid_ctx.codec_context);
+
+        num_frames = vid_ctx.nb_frames;
+
+        // (num_frames, H, W, C)
+        return Py_BuildValue("iiii", num_frames, width, height, 3);
+}
+
+
 static PyMethodDef lintel_methods[] = {
         {"loadvid",
          (PyCFunction)loadvid,
@@ -466,6 +509,11 @@ static PyMethodDef lintel_methods[] = {
                    "tuple(decoded video ByteArray object, seek_distance) or\n"
                    "tuple(decoded video ByteArray object, width, height, seek_distance)\n"
                    "if width and height are not passed as arguments.")},
+         {"get_video_shape",
+           (PyCFunction)get_video_shape,
+           METH_VARARGS | METH_KEYWORDS,
+           PyDoc_STR("get_video_shape(encoded_video) -> (num_frames, height, weight, channels)")
+         },
         {"loadvid_frame_nums",
          (PyCFunction)loadvid_frame_nums,
          METH_VARARGS | METH_KEYWORDS,
@@ -492,7 +540,9 @@ lintelmodule = {
 PyMODINIT_FUNC
 PyInit__lintel(void)
 {
+#if LIBAVCODEC_VERSION_INT < AV_VERSION_INT(58, 9, 100)
         av_register_all();
+#endif
         av_log_set_level(AV_LOG_ERROR);
         srand(time(NULL));
 

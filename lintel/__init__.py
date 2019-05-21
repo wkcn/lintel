@@ -18,3 +18,4 @@ import _lintel
 
 loadvid = _lintel.loadvid
 loadvid_frame_nums = _lintel.loadvid_frame_nums
+get_video_shape = _lintel.get_video_shape
